@@ -671,26 +671,50 @@ namespace HexJson
                         break;                      
                     case FieldType.List:
                         {
-                            IList list = Activator.CreateInstance(setter.FieldType) as IList;
-                            JsonArray array = JsonTarget.GetArray(setter.JsonKey);
-                            foreach (var item in array)
-                                list.Add(Convert.ChangeType((item as JsonValue).GetValue(), setter.NestedType));
-                            if (setter.Field != null)
-                                setter.Field.SetValue(ret, list);
+                            JsonArray json_array = JsonTarget.GetArray(setter.JsonKey);
+                            object value = null;
+                            if (setter.FieldType.IsArray)
+                            {
+                                Array array = Activator.CreateInstance(setter.FieldType, json_array.Count) as Array;
+                                value = array;
+                                for (int i = 0; i < array.Length; ++i)
+                                    array.SetValue(Convert.ChangeType(json_array.GetValue(i).GetValue(), setter.NestedType), i);
+                            }
                             else
-                                setter.Property.SetValue(ret, list);
+                            {
+                                IList list = Activator.CreateInstance(setter.FieldType) as IList;
+                                value = list;
+                                foreach (var item in json_array)
+                                    list.Add(Convert.ChangeType((item as JsonValue).GetValue(), setter.NestedType));
+                            }
+                            if (setter.Field != null)
+                                setter.Field.SetValue(ret, value);
+                            else
+                                setter.Property.SetValue(ret, value);
                             break;
                         }
                     case FieldType.ListWithNest:
                         {
-                            IList list = Activator.CreateInstance(setter.FieldType) as IList;
-                            JsonArray array = JsonTarget.GetArray(setter.JsonKey);
-                            foreach (var item in array)
-                                list.Add(DeserializeObject(setter.NestedType, item as JsonObject, setter.ChildSetters));
-                            if (setter.Field != null)
-                                setter.Field.SetValue(ret, list);
+                            JsonArray json_array = JsonTarget.GetArray(setter.JsonKey);
+                            object value = null;
+                            if (setter.FieldType.IsArray)
+                            {
+                                Array array = Activator.CreateInstance(setter.FieldType, json_array.Count) as Array;
+                                value = array;
+                                for (int i = 0; i < array.Length; ++i)
+                                    array.SetValue(DeserializeObject(setter.NestedType, json_array.GetObject(i), setter.ChildSetters), i);
+                            }
                             else
-                                setter.Property.SetValue(ret, list);
+                            {
+                                IList list = Activator.CreateInstance(setter.FieldType) as IList;
+                                value = list;
+                                foreach (var item in json_array)
+                                    list.Add(DeserializeObject(setter.NestedType, item as JsonObject, setter.ChildSetters));
+                            }
+                            if (setter.Field != null)
+                                setter.Field.SetValue(ret, value);
+                            else
+                                setter.Property.SetValue(ret, value);
                         }
                         break;               
                 }
