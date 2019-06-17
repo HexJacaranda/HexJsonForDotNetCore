@@ -420,7 +420,8 @@ namespace HexJson
         public void Consume(JsonToken token)
         {
             while (char.IsWhiteSpace(m_source[m_index])) m_index++;
-            switch (m_source[m_index])
+            char current = m_source[m_index];
+            switch (current)
             {
                 case '{':
                     SetSingleToken(token, JsonTokenType.LCurly); break;
@@ -447,7 +448,7 @@ namespace HexJson
                 default:
                     break;
             }
-            if (char.IsDigit(m_source[m_index]))
+            if (char.IsDigit(current))
                 ReadDigit(token);
         }
         public bool Done => m_end;
