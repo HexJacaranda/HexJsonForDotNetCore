@@ -218,7 +218,7 @@ namespace HexJson
     };
     class JsonParseHelper
     {
-        public static int FloatSniff(string value, int index)
+        public static int FloatSniff(ReadOnlySpan<char> value, int index)
         {
             int ret = 0;
             short dot_times = 0;
@@ -246,7 +246,7 @@ namespace HexJson
         {
             return c >= 'a' && c <= 'f';
         }
-        public static char HexToChar(string value, int index, int count)
+        public static char HexToChar(ReadOnlySpan<char> value, int index, int count)
         {
             int ret = 0;
             int factor = 0;
@@ -294,12 +294,12 @@ namespace HexJson
         }
         public JsonToken() { }
     };
-    class JsonTokenizer
+    ref struct JsonTokenizer
     {
-        readonly string m_source = null;
-        int m_index = 0;
-        readonly int m_size = 0;
-        bool m_end = false;
+        readonly ReadOnlySpan<char> m_source;
+        int m_index;
+        readonly int m_size;
+        bool m_end;
         void SetSingleToken(JsonToken token, JsonTokenType type)
         {
             token.Type = type;
@@ -354,7 +354,7 @@ namespace HexJson
                     else
                     {
                         char escape = char.MinValue;
-                        if (GetEscapeChar(m_source[m_index], ref escape))
+                        if (!GetEscapeChar(m_source[m_index], ref escape))
                             throw new JsonParsingException("Invalid escape character");
                         builer.Append(escape);
                         m_index++;
@@ -376,7 +376,7 @@ namespace HexJson
             if (count == 0)
                 throw new JsonParsingException("Nought-length number is not allowed");
             double first_part = 0;
-            double.TryParse(m_source.AsSpan(m_index, count), out first_part);
+            double.TryParse(m_source.Slice(m_index, count), out first_part);
             m_index += count;
             if (m_source[m_index] == 'E' || m_source[m_index] == 'e')
             {
@@ -387,7 +387,7 @@ namespace HexJson
                 else
                 {
                     double second_part = 0;
-                    double.TryParse(m_source.AsSpan(m_index, sec_count), out second_part);
+                    double.TryParse(m_source.Slice(m_index, sec_count), out second_part);
                     m_index += sec_count;
                     token.Value = Math.Pow(first_part, second_part);
                 }
@@ -399,7 +399,7 @@ namespace HexJson
         void ReadNull(JsonToken token)
         {
             token.Type = JsonTokenType.Null;
-            if (m_source.AsSpan(m_index, 4) != "null")
+            if (!m_source.Slice(m_index, 4).Equals("null", StringComparison.Ordinal))
                 throw new JsonParsingException("Invalid key word - null");
             token.Content = "null";
             m_index += 4;
@@ -409,7 +409,7 @@ namespace HexJson
             token.Type = JsonTokenType.Boolean;
             token.Value = 1;
             token.Content = "true";
-            if (m_source.AsSpan(m_index, 4) != "true")
+            if (!m_source.Slice(m_index, 4).Equals("true", StringComparison.Ordinal))
                 throw new JsonParsingException("Invalid boolean value");
             m_index += 4;
         }
@@ -418,14 +418,16 @@ namespace HexJson
             token.Type = JsonTokenType.Boolean;
             token.Value = 0;
             token.Content = "false";
-            if (m_source.AsSpan(m_index, 5) != "false")
+            if (!m_source.Slice(m_index, 5).Equals("false", StringComparison.Ordinal))
                 throw new JsonParsingException("Invalid boolean value");
             m_index += 5;
         }
         public JsonTokenizer(string JsonString)
         {
-            m_source = JsonString;
+            m_source = JsonString.AsSpan();
             m_size = JsonString.Length;
+            m_index = 0;
+            m_end = false;
         }
         public void Consume(JsonToken token)
         {
@@ -468,7 +470,7 @@ namespace HexJson
         }
     }
     //Json解析器
-    public class JsonParser
+    public ref struct JsonParser
     {
         JsonTokenizer m_tokenizer;
         public JsonParser(string target)
