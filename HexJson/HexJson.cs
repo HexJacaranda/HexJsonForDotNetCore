@@ -19,6 +19,16 @@ namespace HexJson
     {
         JsonValueType GetValueType();
     };
+    [System.Serializable]
+    public class JsonRuntimeException : Exception
+    {
+        public JsonRuntimeException() { }
+        public JsonRuntimeException(string message) : base(message) { }
+        public JsonRuntimeException(string message, Exception inner) : base(message, inner) { }
+        protected JsonRuntimeException(
+          System.Runtime.Serialization.SerializationInfo info,
+          System.Runtime.Serialization.StreamingContext context) : base(info, context) { }
+    }
     //Json值
     public class JsonValue : IJsonValue
     {
@@ -33,13 +43,13 @@ namespace HexJson
         {
             if (m_type == JsonValueType.Number)
                 return m_cache;
-            throw new Exception("Not Float");
+            throw new JsonRuntimeException("Not float");
         }
         public string AsString()
         {
             if (m_type == JsonValueType.String)
                 return m_string;
-            throw new Exception("Error type");
+            throw new JsonRuntimeException("Not string");
         }
         public int AsInt()
         {
@@ -49,7 +59,7 @@ namespace HexJson
         {
             if (m_type == JsonValueType.Boolean)
                 return m_cache == 1;
-            throw new Exception("Error type");
+            throw new JsonRuntimeException("Not boolean");
         }
         public object GetValue()
         {
@@ -366,7 +376,7 @@ namespace HexJson
             if (count == 0)
                 throw new JsonParsingException("Nought-length number is not allowed");
             double first_part = 0;
-            double.TryParse(m_source.Substring(m_index, count), out first_part);
+            double.TryParse(m_source.AsSpan(m_index, count), out first_part);
             m_index += count;
             if (m_source[m_index] == 'E' || m_source[m_index] == 'e')
             {
@@ -377,7 +387,7 @@ namespace HexJson
                 else
                 {
                     double second_part = 0;
-                    double.TryParse(m_source.Substring(m_index, sec_count), out second_part);
+                    double.TryParse(m_source.AsSpan(m_index, sec_count), out second_part);
                     m_index += sec_count;
                     token.Value = Math.Pow(first_part, second_part);
                 }
@@ -389,7 +399,7 @@ namespace HexJson
         void ReadNull(JsonToken token)
         {
             token.Type = JsonTokenType.Null;
-            if (m_source.Substring(m_index, 4) != "null")
+            if (m_source.AsSpan(m_index, 4) != "null")
                 throw new JsonParsingException("Invalid key word - null");
             token.Content = "null";
             m_index += 4;
@@ -399,7 +409,7 @@ namespace HexJson
             token.Type = JsonTokenType.Boolean;
             token.Value = 1;
             token.Content = "true";
-            if (m_source.Substring(m_index, 4) != "true")
+            if (m_source.AsSpan(m_index, 4) != "true")
                 throw new JsonParsingException("Invalid boolean value");
             m_index += 4;
         }
@@ -408,7 +418,7 @@ namespace HexJson
             token.Type = JsonTokenType.Boolean;
             token.Value = 0;
             token.Content = "false";
-            if (m_source.Substring(m_index, 5) != "false")
+            if (m_source.AsSpan(m_index, 5) != "false")
                 throw new JsonParsingException("Invalid boolean value");
             m_index += 5;
         }
