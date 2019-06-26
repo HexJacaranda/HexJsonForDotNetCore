@@ -29,12 +29,27 @@ namespace HexJson
           System.Runtime.Serialization.SerializationInfo info,
           System.Runtime.Serialization.StreamingContext context) : base(info, context) { }
     }
-    //Json值
+    [System.Serializable]
+    public class JsonParsingException : Exception
+    {
+        public JsonParsingException() { }
+        public JsonParsingException(string message) : base(message) { }
+        public JsonParsingException(string message, Exception inner) : base(message, inner) { }
+        protected JsonParsingException(
+          System.Runtime.Serialization.SerializationInfo info,
+          System.Runtime.Serialization.StreamingContext context) : base(info, context) { }
+    }
     public class JsonValue : IJsonValue
     {
         protected string m_string;
         protected double m_cache;
         protected JsonValueType m_type;
+        public JsonValue(string value, double cache, JsonValueType type)
+        {
+            m_cache = cache;
+            m_string = value;
+            m_type = type;
+        }
         public JsonValueType GetValueType()
         {
             return m_type;
@@ -77,14 +92,23 @@ namespace HexJson
             JsonValueType type = value.GetValueType();
             return (type == JsonValueType.Boolean || type == JsonValueType.Number || type == JsonValueType.Null || type == JsonValueType.String);
         }
-        public JsonValue(string value, double cache, JsonValueType type)
+        public static JsonValue From(string value)
         {
-            m_cache = cache;
-            m_string = value;
-            m_type = type;
+            return new JsonValue(value, 0, JsonValueType.String);
+        }
+        public static JsonValue From(double value)
+        {
+            return new JsonValue(null, value, JsonValueType.Number);
+        }
+        public static JsonValue From(bool value)
+        {
+            return new JsonValue(null, value ? 1 : 0, JsonValueType.Boolean);
+        }
+        public static JsonValue From()
+        {
+            return new JsonValue(null, 0, JsonValueType.Null);
         }
     };
-    //Json对象
     public class JsonObject : IJsonValue, IEnumerable<KeyValuePair<string, IJsonValue>>
     {
         protected Dictionary<string, IJsonValue> m_map;
@@ -92,17 +116,24 @@ namespace HexJson
         {
             bool found = m_map.TryGetValue(index, out IJsonValue result);
             if (!found)
-                return default(T);
+                return default;
             if (result.GetValueType() == type)
                 return (T)result;
             else
-                return default(T);
+                return default;
+        }
+        public JsonObject(Dictionary<string, IJsonValue> target)
+        {
+            m_map = target;
+        }
+        public JsonObject()
+        {
+            m_map = new Dictionary<string, IJsonValue>();
         }
         public JsonValueType GetValueType()
         {
             return JsonValueType.Object;
         }
-        //取出值
         public IJsonValue this[string index]
         {
             get
@@ -110,7 +141,6 @@ namespace HexJson
                 return m_map[index];
             }
         }
-        //数目
         public int Count
         {
             get
@@ -118,7 +148,6 @@ namespace HexJson
                 return m_map.Count;
             }
         }
-        //取出值,作为Value
         public JsonValue GetValue(string index)
         {
             bool found = m_map.TryGetValue(index, out IJsonValue result);
@@ -130,12 +159,10 @@ namespace HexJson
             else
                 return null;
         }
-        //取出值,作为Object
         public JsonObject GetObject(string index)
         {
             return TryGetAs<JsonObject>(index, JsonValueType.Object);
         }
-        //取出值,作为Array
         public JsonArray GetArray(string index)
         {
             return TryGetAs<JsonArray>(index, JsonValueType.Array);
@@ -148,16 +175,26 @@ namespace HexJson
         {
             return m_map.GetEnumerator();
         }
-        public JsonObject(Dictionary<string, IJsonValue> target)
+        public void AddItem(string key, IJsonValue value)
         {
-            m_map = target;
+            m_map.Add(key, value);
+        }
+        public void RemoveItem(string key)
+        {
+            m_map.Remove(key);
         }
     };
-    //Json数组
     public class JsonArray : IJsonValue, IEnumerable<IJsonValue>
     {
         protected List<IJsonValue> m_list;
-
+        public JsonArray(List<IJsonValue> target)
+        {
+            m_list = target;
+        }
+        public JsonArray()
+        {
+            m_list = new List<IJsonValue>();
+        }
         public JsonValueType GetValueType()
         {
             return JsonValueType.Array;
@@ -169,7 +206,6 @@ namespace HexJson
                 return m_list[index];
             }
         }
-        //数目
         public int Count
         {
             get
@@ -177,23 +213,24 @@ namespace HexJson
                 return m_list.Count;
             }
         }
-        //取出值,作为Object
         public JsonObject GetObject(int index)
         {
             IJsonValue value = m_list[index];
             return value.GetValueType() == JsonValueType.Object ? (JsonObject)value : null;
         }
-        //取出值,作为Value
         public JsonValue GetValue(int index)
         {
             IJsonValue value = m_list[index];
             return JsonValue.IsValue(value) ? (JsonValue)value : null;
         }
-        //取出值,作为Array
         public JsonArray GetArray(int index)
         {
             IJsonValue value = m_list[index];
             return value.GetValueType() == JsonValueType.Array ? (JsonArray)value : null;
+        }
+        public void AddItem(IJsonValue value)
+        {
+            m_list.Add(value);
         }
         public IEnumerator<IJsonValue> GetEnumerator()
         {
@@ -202,18 +239,6 @@ namespace HexJson
         IEnumerator IEnumerable.GetEnumerator()
         {
             return m_list.GetEnumerator();
-        }
-        public JsonArray(List<IJsonValue> target)
-        {
-            m_list = target;
-        }
-    };
-    //Json解析异常
-    public class JsonParsingException : Exception
-    {
-        public JsonParsingException(string msg) : base(msg)
-        {
-
         }
     };
     class JsonParseHelper
@@ -469,7 +494,6 @@ namespace HexJson
             m_index -= Cnt;
         }
     }
-    //Json解析器
     public ref struct JsonParser
     {
         JsonTokenizer m_tokenizer;
@@ -745,6 +769,144 @@ namespace HexJson
         public static object Deserialize(JsonDeserializationMetaData MetaData,JsonObject JsonTarget)
         {
             return DeserializeObject(MetaData.ObjectType, JsonTarget, MetaData.Setters);
+        }
+    }
+    public enum Encoding
+    {
+        Unicode,
+        None
+    }
+    public class JsonFormatter
+    {
+        private StringBuilder m_text = new StringBuilder();
+        private const int ASCII = 127;
+        private void Text(string Target)
+        {
+            m_text.Append(Target);
+        }
+        private void Text(Span<char> Target)
+        {
+            m_text.Append(Target);
+        }
+        private void Text(char Target)
+        {
+            m_text.Append(Target);
+        }
+        private void TextViaUnicode(string Target)
+        {
+            switch (TextEncoding)
+            {
+                case Encoding.None: Text(Target); break;
+                case Encoding.Unicode:
+                    {
+
+                        for (int i = 0; i < Target.Length; ++i)
+                        {
+                            if (Target[i] > ASCII)
+                            {
+                                Text('\\');
+                                Text('u');
+                                Span<char> buffer = new char[4];
+                                ToUnicodeFormat(Target[i], buffer);
+                                Text(buffer);
+                            }
+                            else
+                                Text(Target[i]);
+                        }
+                        break;
+                    }
+                default:
+                    throw new JsonRuntimeException("Invalid encoding");
+            }
+        }
+        private static void ToUnicodeFormat(char Target, Span<char> Buffer)
+        {
+            int div = Target;
+            for (int i = 0; i < Buffer.Length; ++i)
+            {
+                int remain = div % 16;
+                div >>= 4;
+                Buffer[Buffer.Length - 1 - i] = (char)(remain > 9 ? remain - 10 + 'a' : remain + '0');
+            }
+        }
+        private void Roll(int Cnt)
+        {
+            m_text.Remove(m_text.Length - 1, Cnt);
+        }
+        private void JsonValueFormat(IJsonValue Target)
+        {
+            if (JsonValue.IsValue(Target))
+                ValueFormat(Target as JsonValue);
+            else if (Target.GetValueType() == JsonValueType.Array)
+                ArrayFormat(Target as JsonArray);
+            else if (Target.GetValueType() == JsonValueType.Object)
+                ObjectFormat(Target as JsonObject);
+            else
+                throw new JsonRuntimeException("Unexpected IJsonValue.Type");
+        }
+        private void ObjectFormat(JsonObject Target)
+        {
+            Text('{');
+            foreach (var item in Target)
+            {
+                Text('"');
+                Text(item.Key);
+                Text('"');
+                Text(':');
+                JsonValueFormat(item.Value);
+                Text(',');
+            }
+            if (Target.Count > 0)
+                Roll(1);
+            Text('}');
+        }
+        private void ArrayFormat(JsonArray Target)
+        {
+            Text('[');
+            foreach (var item in Target)
+            {
+                JsonValueFormat(item);
+                Text(',');
+            }
+            if (Target.Count > 0)
+                Roll(1);
+            Text(']');
+        }
+        private void ValueFormat(JsonValue Target)
+        {
+            switch (Target.GetValueType())
+            {
+                case JsonValueType.Boolean:
+                    if (Target.AsBoolean()) Text("true"); else Text("false");
+                    break;
+                case JsonValueType.Null:
+                    Text("null");
+                    break;
+                case JsonValueType.Number:
+                    Text(Target.AsDouble().ToString());
+                    break;
+                case JsonValueType.String:
+                    Text('"');
+                    TextViaUnicode(Target.AsString());
+                    Text('"');
+                    break;
+                default:
+                    throw new JsonRuntimeException("Invalid type for formatter");
+            }
+        }
+        public Encoding TextEncoding { get; set; }
+        public string Format
+        {
+            get
+            {
+                return m_text.ToString();
+            }
+        }
+        public static string JsonFormat(IJsonValue target, Encoding encoding = Encoding.None)
+        {
+            JsonFormatter formatter = new JsonFormatter() { TextEncoding = encoding };
+            formatter.JsonValueFormat(target);
+            return formatter.Format;
         }
     }
 }
