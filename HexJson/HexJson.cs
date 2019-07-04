@@ -68,7 +68,9 @@ namespace HexJson
         }
         public int AsInt()
         {
-            return (int)m_cache;
+            if (m_type == JsonValueType.Number)
+                return (int)m_cache;
+            throw new JsonRuntimeException("Not float");
         }
         public bool AsBoolean()
         {
@@ -483,10 +485,10 @@ namespace HexJson
                 case 'f':
                     ReadFalse(token); break;
                 default:
+                    if (char.IsDigit(current))
+                        ReadDigit(token);
                     break;
             }
-            if (char.IsDigit(current))
-                ReadDigit(token);
         }
         public bool Done => m_end;
         public void Repeek(int Cnt)
