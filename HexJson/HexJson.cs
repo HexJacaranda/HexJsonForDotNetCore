@@ -377,6 +377,7 @@ namespace HexJson
                         m_index++;
                         char unicode = JsonParseHelper.HexToChar(m_source, m_index, 4);
                         builer.Append(unicode);
+                        m_index += 4;
                     }
                     else
                     {
