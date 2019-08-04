@@ -304,22 +304,23 @@ namespace HexJson
         Comma,
         Colon
     };
-    class JsonToken
+    struct JsonToken
     {
-        public double Value = 0;
-        public string Content = string.Empty;
-        public JsonTokenType Type = JsonTokenType.Null;
+        public double Value;
+        public string Content;
+        public JsonTokenType Type;
         public JsonToken(JsonTokenType type, string value)
         {
             Type = type;
             Content = value;
+            Value = 0;
         }
         public JsonToken(JsonTokenType type, double value)
         {
             Type = type;
             Value = value;
+            Content = string.Empty;
         }
-        public JsonToken() { }
     };
     ref struct JsonTokenizer
     {
@@ -327,7 +328,7 @@ namespace HexJson
         int m_index;
         readonly int m_size;
         bool m_end;
-        void SetSingleToken(JsonToken token, JsonTokenType type)
+        void SetSingleToken(ref JsonToken token, JsonTokenType type)
         {
             token.Type = type;
             token.Value = m_source[m_index];
@@ -362,7 +363,7 @@ namespace HexJson
                 return false;
             return true;
         }
-        void ReadString(JsonToken token)
+        void ReadString(ref JsonToken token)
         {
             StringBuilder builer = new StringBuilder();
             token.Type = JsonTokenType.String;
@@ -398,7 +399,7 @@ namespace HexJson
                     builer.Append(m_source[m_index++]);
             }
         }
-        void ReadDigit(JsonToken token)
+        void ReadDigit(ref JsonToken token)
         {
             int count = JsonParseHelper.FloatSniff(m_source, m_index);
             if (count == 0)
@@ -424,7 +425,7 @@ namespace HexJson
                 token.Value = first_part;
             token.Type = JsonTokenType.Digit;
         }
-        void ReadNull(JsonToken token)
+        void ReadNull(ref JsonToken token)
         {
             token.Type = JsonTokenType.Null;
             if (!m_source.Slice(m_index, 4).Equals("null", StringComparison.Ordinal))
@@ -432,7 +433,7 @@ namespace HexJson
             token.Content = "null";
             m_index += 4;
         }
-        void ReadTrue(JsonToken token)
+        void ReadTrue(ref JsonToken token)
         {
             token.Type = JsonTokenType.Boolean;
             token.Value = 1;
@@ -441,7 +442,7 @@ namespace HexJson
                 throw new JsonParsingException("Invalid boolean value");
             m_index += 4;
         }
-        void ReadFalse(JsonToken token)
+        void ReadFalse(ref JsonToken token)
         {
             token.Type = JsonTokenType.Boolean;
             token.Value = 0;
@@ -457,37 +458,37 @@ namespace HexJson
             m_index = 0;
             m_end = false;
         }
-        public void Consume(JsonToken token)
+        public void Consume(ref JsonToken token)
         {
             while (char.IsWhiteSpace(m_source[m_index])) m_index++;
             char current = m_source[m_index];
             switch (current)
             {
                 case '{':
-                    SetSingleToken(token, JsonTokenType.LCurly); break;
+                    SetSingleToken(ref token, JsonTokenType.LCurly); break;
                 case '}':
-                    SetSingleToken(token, JsonTokenType.RCurly); break;
+                    SetSingleToken(ref token, JsonTokenType.RCurly); break;
                 case '[':
-                    SetSingleToken(token, JsonTokenType.LBracket); break;
+                    SetSingleToken(ref token, JsonTokenType.LBracket); break;
                 case ']':
-                    SetSingleToken(token, JsonTokenType.RBracket); break;
+                    SetSingleToken(ref token, JsonTokenType.RBracket); break;
                 case ',':
-                    SetSingleToken(token, JsonTokenType.Comma); break;
+                    SetSingleToken(ref token, JsonTokenType.Comma); break;
                 case ':':
-                    SetSingleToken(token, JsonTokenType.Colon); break;
+                    SetSingleToken(ref token, JsonTokenType.Colon); break;
                 case '"':
-                    ReadString(token); break;
+                    ReadString(ref token); break;
                 case '-':
-                    ReadDigit(token); break;
+                    ReadDigit(ref token); break;
                 case 'n':
-                    ReadNull(token); break;
+                    ReadNull(ref token); break;
                 case 't':
-                    ReadTrue(token); break;
+                    ReadTrue(ref token); break;
                 case 'f':
-                    ReadFalse(token); break;
+                    ReadFalse(ref token); break;
                 default:
                     if (char.IsDigit(current))
-                        ReadDigit(token);
+                        ReadDigit(ref token);
                     break;
             }
         }
@@ -509,7 +510,7 @@ namespace HexJson
             JsonToken token = new JsonToken();
             if (m_tokenizer.Done)
                 return null;
-            m_tokenizer.Consume(token);
+            m_tokenizer.Consume(ref token);
             switch (token.Type)
             {
                 case JsonTokenType.LCurly:
@@ -533,12 +534,12 @@ namespace HexJson
         {
             Dictionary<string, IJsonValue> table = new Dictionary<string, IJsonValue>();
             JsonToken token = new JsonToken();
-            m_tokenizer.Consume(token);
+            m_tokenizer.Consume(ref token);
             if (token.Type != JsonTokenType.LCurly)
                 throw new JsonParsingException("Expected to be LCurly({)");
             while (!m_tokenizer.Done)
             {
-                m_tokenizer.Consume(token);
+                m_tokenizer.Consume(ref token);
                 if (token.Type != JsonTokenType.String)
                 {
                     if (token.Type == JsonTokenType.RCurly)
@@ -546,12 +547,12 @@ namespace HexJson
                     throw new JsonParsingException("Expected to be String");
                 }
                 string key = token.Content;
-                m_tokenizer.Consume(token);
+                m_tokenizer.Consume(ref token);
                 if (token.Type != JsonTokenType.Colon)
                     throw new JsonParsingException("Expected to be Colon(:)");
                 IJsonValue value = ParseValue();
                 table.Add(key, value);
-                m_tokenizer.Consume(token);
+                m_tokenizer.Consume(ref token);
                 if (token.Type == JsonTokenType.RCurly)
                     break;
                 if (token.Type != JsonTokenType.Comma)
@@ -563,7 +564,7 @@ namespace HexJson
         {
             List<IJsonValue> list = new List<IJsonValue>();
             JsonToken token = new JsonToken();
-            m_tokenizer.Consume(token);
+            m_tokenizer.Consume(ref token);
             if (token.Type != JsonTokenType.LBracket)
                 throw new JsonParsingException("Expected to be LBracket([)");
             while (!m_tokenizer.Done)
@@ -572,7 +573,7 @@ namespace HexJson
                 if (value == null)
                     break;
                 list.Add(value);
-                m_tokenizer.Consume(token);
+                m_tokenizer.Consume(ref token);
                 if (token.Type == JsonTokenType.RBracket)
                     break;
                 if (token.Type != JsonTokenType.Comma)
