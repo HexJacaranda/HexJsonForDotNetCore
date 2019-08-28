@@ -234,8 +234,5 @@ namespace HexJson
             return m_list.GetEnumerator();
         }
     };
-  
-  
-    
-
+ 
 }

@@ -13,19 +13,28 @@ namespace HexJson
     [AttributeUsage(AttributeTargets.Property | AttributeTargets.Field)]
     public class JsonFieldAttribute : Attribute
     {
-        public JsonFieldAttribute(string Field, string Pipe = null)
+        public JsonFieldAttribute(string Field, string Pipe = null, string InversePipe = null)
         {
             JsonField = Field;
-            PipeKey = Pipe;
+            DeserializationPipe = Pipe;
+            SerializationPipe = InversePipe;
         }
         /// <summary>
-        /// Target Field Key
+        /// Target json field key
         /// </summary>
         public string JsonField { get; set; }
         /// <summary>
-        /// Custom Pipe Name
+        /// Custom deserialization pipe name
         /// </summary>
-        public string PipeKey { get; set; }
+        public string DeserializationPipe { get; set; }
+        /// <summary>
+        /// Custom serialization pipe name
+        /// </summary>
+        public string SerializationPipe { get; set; }
+        /// <summary>
+        /// Custom string encoding
+        /// </summary>
+        public Encoding StringEncoding { get; set; }
     };
     enum FieldType
     {
@@ -34,31 +43,50 @@ namespace HexJson
         List,
         ListWithNest
     }
-    class FieldSetter
+    class JsonFieldInfo
     {
-        public FieldType SetterFieldType;
+        public FieldType TargetFieldType;
         public PropertyInfo Property;
         public Type FieldType;
         public FieldInfo Field;
         public Type NestedType;
         public string JsonKey;
         public Func<IJsonValue, object> Pipe;
-        public FieldSetter[] ChildSetters;
+        public Func<object, string> InversePipe;
+        public JsonFieldInfo[] JsonFields;
+        public void SetValue(object target, object value)
+        {
+            if (Field != null)
+                Field.SetValue(target, value);
+            else if (Property != null)
+                Property.SetValue(target, value);
+            else
+                throw new JsonRuntimeException("Invalid meta data");
+        }
+        public object GetValue(object target)
+        {
+            if (Field != null)
+                return Field.GetValue(target);
+            else if (Property != null)
+                return Property.GetValue(target);
+            else
+                throw new JsonRuntimeException("Invalid meta data");
+        }
     }
     class JsonDeserializationMetaData
     {
         public Type ObjectType;
-        public FieldSetter[] Setters;
+        public JsonFieldInfo[] JsonFields;
     }
     /// <summary>
-    /// JsonDeserialization Service
+    /// Json deserialization service
     /// </summary>
     public class JsonDeserialization
     {
         private static ConcurrentDictionary<Type, JsonDeserializationMetaData> m_meta_cache = new ConcurrentDictionary<Type, JsonDeserializationMetaData>();
-        private static FieldSetter[] ParseObject(Type ObjectType)
+        private static JsonFieldInfo[] Parse(Type ObjectType)
         {
-            var setters = new List<FieldSetter>();
+            var JsonFields = new List<JsonFieldInfo>();
             if (ObjectType == null || ObjectType.GetCustomAttribute(typeof(JsonDeserializationAttribute)) == null)
                 return null;
             foreach (var member in ObjectType.GetMembers(BindingFlags.Public | BindingFlags.Instance | BindingFlags.NonPublic))
@@ -72,18 +100,18 @@ namespace HexJson
                 }
                 else
                     continue;
-                FieldSetter setter = new FieldSetter();
+                JsonFieldInfo setter = new JsonFieldInfo();
                 setter.JsonKey = attribute.JsonField;
-                if (attribute.PipeKey != null)
+                if (attribute.DeserializationPipe != null)
                 {
-                    var method = ObjectType.GetMethod(attribute.PipeKey, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Instance);
+                    var method = ObjectType.GetMethod(attribute.DeserializationPipe, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Instance);
                     if (method == null)
                         throw new JsonRuntimeException("Pipe method does not exist!");
                     setter.Pipe = method.CreateDelegate(typeof(Func<IJsonValue, object>)) as Func<IJsonValue, object>;
                 }
                 if (member.MemberType == MemberTypes.Property)
                 {
-                    setter.SetterFieldType = FieldType.Property;
+                    setter.TargetFieldType = FieldType.Property;
                     var property_info = member as PropertyInfo;
                     if (!property_info.CanWrite)
                         continue;
@@ -92,7 +120,7 @@ namespace HexJson
                 }
                 else if (member.MemberType == MemberTypes.Field)
                 {
-                    setter.SetterFieldType = FieldType.Field;
+                    setter.TargetFieldType = FieldType.Field;
                     setter.Field = member as FieldInfo;
                     setter.FieldType = setter.Field.FieldType;
                 }
@@ -103,11 +131,11 @@ namespace HexJson
                         setter.NestedType = setter.FieldType.GetElementType();
                         if (setter.NestedType != typeof(string) && setter.NestedType != typeof(object) && !setter.NestedType.IsPrimitive)
                         {
-                            setter.SetterFieldType = FieldType.ListWithNest;
-                            setter.ChildSetters = ParseObject(setter.NestedType);
+                            setter.TargetFieldType = FieldType.ListWithNest;
+                            setter.JsonFields = Parse(setter.NestedType);
                         }
                         else
-                            setter.SetterFieldType = FieldType.List;
+                            setter.TargetFieldType = FieldType.List;
                     }
                     else if (setter.FieldType.IsConstructedGenericType)//动态数组
                     {
@@ -116,50 +144,35 @@ namespace HexJson
                             setter.NestedType = setter.FieldType.GetGenericArguments()[0];
                             if (setter.NestedType != typeof(string) && setter.NestedType != typeof(object) && !setter.NestedType.IsPrimitive)
                             {
-                                setter.SetterFieldType = FieldType.ListWithNest;
-                                setter.ChildSetters = ParseObject(setter.NestedType);
+                                setter.TargetFieldType = FieldType.ListWithNest;
+                                setter.JsonFields = Parse(setter.NestedType);
                             }
                             else
-                                setter.SetterFieldType = FieldType.List;
+                                setter.TargetFieldType = FieldType.List;
                         }
                         else
                             continue;
                     }
                     else
-                        setter.ChildSetters = ParseObject(setter.FieldType);
+                        setter.JsonFields = Parse(setter.FieldType);
                 }
-                setters.Add(setter);
+                JsonFields.Add(setter);
             }
-            return setters.ToArray();
+            return JsonFields.ToArray();
         }
-        private static object DeserializeObject(Type TargetType, JsonObject JsonTarget, FieldSetter[] Setters)
+        private static object DeserializeObject(Type TargetType, JsonObject JsonTarget, JsonFieldInfo[] JsonFields)
         {
             object ret = Activator.CreateInstance(TargetType);
-            foreach (var setter in Setters)
+            foreach (var setter in JsonFields)
             {
                 //自定义管道
                 if (setter.Pipe != null)
                 {
                     object value = setter.Pipe(JsonTarget[setter.JsonKey]);
-                    switch (setter.SetterFieldType)
-                    {
-                        case FieldType.Field:
-                            setter.Field.SetValue(ret, value);
-                            break;
-                        case FieldType.Property:
-                            setter.Property.SetValue(ret, value);
-                            break;
-                        case FieldType.List:
-                        case FieldType.ListWithNest:
-                            if (setter.Field != null)
-                                setter.Field.SetValue(ret, value);
-                            else
-                                setter.Property.SetValue(ret, value);
-                            break;
-                    }
+                    setter.SetValue(ret, value);
                     continue;
                 }
-                switch (setter.SetterFieldType)
+                switch (setter.TargetFieldType)
                 {
                     case FieldType.Field:
                         setter.Field.SetValue(ret, Convert.ChangeType(JsonTarget.GetValue(setter.JsonKey).GetValue(), setter.FieldType));
@@ -200,14 +213,14 @@ namespace HexJson
                                 Array array = Activator.CreateInstance(setter.FieldType, json_array.Count) as Array;
                                 value = array;
                                 for (int i = 0; i < array.Length; ++i)
-                                    array.SetValue(DeserializeObject(setter.NestedType, json_array.GetObject(i), setter.ChildSetters), i);
+                                    array.SetValue(DeserializeObject(setter.NestedType, json_array.GetObject(i), setter.JsonFields), i);
                             }
                             else
                             {
                                 IList list = Activator.CreateInstance(setter.FieldType) as IList;
                                 value = list;
                                 foreach (var item in json_array)
-                                    list.Add(DeserializeObject(setter.NestedType, item as JsonObject, setter.ChildSetters));
+                                    list.Add(DeserializeObject(setter.NestedType, item as JsonObject, setter.JsonFields));
                             }
                             if (setter.Field != null)
                                 setter.Field.SetValue(ret, value);
@@ -223,13 +236,13 @@ namespace HexJson
         {
             if (m_meta_cache.TryGetValue(TargetType, out var value))
                 return value;
-            var generated = new JsonDeserializationMetaData() { ObjectType = TargetType, Setters = ParseObject(TargetType) };
+            var generated = new JsonDeserializationMetaData() { ObjectType = TargetType, JsonFields = Parse(TargetType) };
             m_meta_cache.TryAdd(TargetType, generated);
             return generated;
         }
         private static object Deserialize(JsonDeserializationMetaData MetaData, JsonObject JsonTarget)
         {
-            return DeserializeObject(MetaData.ObjectType, JsonTarget, MetaData.Setters);
+            return DeserializeObject(MetaData.ObjectType, JsonTarget, MetaData.JsonFields);
         }
         /// <summary>
         /// Deserialize Object
@@ -240,7 +253,7 @@ namespace HexJson
         public static object Deserialize(Type TargetType, JsonObject JsonTarget)
         {
             var meta = GetMetaData(TargetType);
-            return DeserializeObject(TargetType, JsonTarget, meta.Setters);
+            return DeserializeObject(TargetType, JsonTarget, meta.JsonFields);
         }
         /// <summary>
         /// Deserialize JsonArray
@@ -273,7 +286,14 @@ namespace HexJson
         public static T Deserialize<T>(JsonObject JsonTarget) where T : class
         {
             var meta = GetMetaData(typeof(T));
-            return DeserializeObject(typeof(T), JsonTarget, meta.Setters) as T;
+            return DeserializeObject(typeof(T), JsonTarget, meta.JsonFields) as T;
         }
+    }
+    /// <summary>
+    /// Json serialization service
+    /// </summary>
+    public class JsonSerialization
+    {
+
     }
 }

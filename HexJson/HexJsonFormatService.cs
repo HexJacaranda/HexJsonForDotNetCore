@@ -54,14 +54,6 @@ namespace HexJson
         }
         private static void ToUnicodeFormat(char Target, Span<char> Buffer)
         {
-            string x = null;
-            unsafe
-            {
-                fixed (char* ptr = x)
-                {
-
-                }
-            }
             int div = Target;
             for (int i = 0; i < Buffer.Length; ++i)
             {
