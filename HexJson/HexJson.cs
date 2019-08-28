@@ -365,7 +365,7 @@ namespace HexJson
         }
         void ReadString(ref JsonToken token)
         {
-            StringBuilder builer = new StringBuilder();
+            StringBuilder builer = new StringBuilder(16);
             token.Type = JsonTokenType.String;
             m_index++;
             for (; ; )
@@ -602,6 +602,10 @@ namespace HexJson
     [AttributeUsage(AttributeTargets.Property | AttributeTargets.Field)]
     public class JsonFieldAttribute : Attribute
     {
+        public JsonFieldAttribute(string Field)
+        {
+            JsonField = Field;
+        }
         public string JsonField { get; set; }
 	};
     public enum FieldType
@@ -825,6 +829,14 @@ namespace HexJson
         }
         private static void ToUnicodeFormat(char Target, Span<char> Buffer)
         {
+            string x = null;
+            unsafe
+            {
+                fixed (char* ptr = x)
+                {
+
+                }
+            }
             int div = Target;
             for (int i = 0; i < Buffer.Length; ++i)
             {
