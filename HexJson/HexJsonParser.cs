@@ -61,6 +61,54 @@ namespace HexJson
             }
             return (char)ret;
         }
+        public static bool TryParseDouble(ReadOnlySpan<char> value, out double result)
+        {
+            return TryParseDouble(value, 0, value.Length, out result);
+        }
+        public static bool TryParseDouble(ReadOnlySpan<char> value, int index, int count, out double result)
+        {
+            result = default;
+            bool positive = true;
+            bool dot = false;
+            int walk = index;
+            if (value[index] == '-')
+            {
+                positive = false;
+                walk++;
+            }
+            double integer = 0;
+            double floater = 0;
+            for (; walk < index + count; ++walk)
+            {
+                if (char.IsDigit(value[walk]))
+                    integer = integer * 10 + (value[walk] - '0');
+                else if (value[walk] == '.')
+                {
+                    dot = true;
+                    walk++;
+                    break;
+                }
+                else
+                    return false;
+            }
+            if (walk == index + count && dot)
+                return false;
+            double dividor = 10;
+            for (; walk < index + count; ++walk)
+            {
+                if (char.IsDigit(value[walk]))
+                {
+                    floater += (value[walk] - '0') / dividor;
+                    dividor *= 10;
+                }
+                else
+                    return false;
+            }
+            result = integer + floater;
+            if (!positive)
+                result = -result;
+            return true;
+        }
     }
     enum JsonTokenType
     {
@@ -176,7 +224,7 @@ namespace HexJson
             if (count == 0)
                 throw new JsonParsingException("Nought-length number is not allowed");
             double first_part = 0;
-            double.TryParse(m_source.Slice(m_index, count), out first_part);
+            JsonParseHelper.TryParseDouble(m_source.Slice(m_index, count), out first_part);
             m_index += count;
             if (m_source[m_index] == 'E' || m_source[m_index] == 'e')
             {
@@ -187,7 +235,7 @@ namespace HexJson
                 else
                 {
                     double second_part = 0;
-                    double.TryParse(m_source.Slice(m_index, sec_count), out second_part);
+                    JsonParseHelper.TryParseDouble(m_source.Slice(m_index, sec_count), out second_part);
                     m_index += sec_count;
                     token.Value = Math.Pow(first_part, second_part);
                 }
@@ -353,7 +401,6 @@ namespace HexJson
             return new JsonArray(list);
         }
     };
-
     /// <summary>
     /// Json Parse Service
     /// </summary>
