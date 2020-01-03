@@ -44,22 +44,22 @@ namespace HexJson
         {
             return c >= 'a' && c <= 'f';
         }
-        public static char HexToChar(ReadOnlySpan<char> value, int index, int count)
+        public static char HexToChar(char hex)
         {
-            int ret = 0;
-            int factor = 0;
-            for (int i = count - 1; i >= 0; --i)
-            {
-                if (IsHex(value[index]))
-                    factor = (value[index] - 'a') + 10;
-                else if (char.IsDigit(value[index]))
-                    factor = value[index] - '0';
-                else
-                    return (char)ret;
-                ret += factor * (int)Math.Pow(16, i);
-                index++;
-            }
-            return (char)ret;
+            if (hex >= 'a' && hex <= 'f')
+                return (char)(hex - 'a');
+            if (hex >= 'A' && hex <= 'F')
+                return (char)(hex - 'A');
+            if (hex >= '0' && hex <= '9')
+                return (char)(hex - '0');
+            return default;
+        }
+        public static char HexToChars(ReadOnlySpan<char> value, int index, int count)
+        {
+            char ret = default;
+            for(int i = 3; i >= 0; --i)
+                ret |= (char)(HexToChar(value[index++]) << i * 4);
+            return ret;
         }
         public static bool TryParseDouble(ReadOnlySpan<char> value, out double result)
         {
@@ -195,7 +195,7 @@ namespace HexJson
                     if (m_source[m_index] == 'u')//Unicode转义
                     {
                         m_index++;
-                        char unicode = JsonParseHelper.HexToChar(m_source, m_index, 4);
+                        char unicode = JsonParseHelper.HexToChars(m_source, m_index, 4);
                         builer.Append(unicode);
                         m_index += 4;
                     }
