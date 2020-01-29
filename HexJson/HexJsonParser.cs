@@ -1,10 +1,11 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Text;
+using System.IO;
 
 namespace HexJson
 {
-    [System.Serializable]
+    [Serializable]
     public class JsonParsingException : Exception
     {
         public JsonParsingException() { }
@@ -14,7 +15,7 @@ namespace HexJson
           System.Runtime.Serialization.SerializationInfo info,
           System.Runtime.Serialization.StreamingContext context) : base(info, context) { }
     }
-    class JsonParseHelper
+    static class JsonParseHelper
     {
         public static int FloatSniff(ReadOnlySpan<char> value, int index)
         {
@@ -40,10 +41,6 @@ namespace HexJson
             }
             return ret;
         }
-        public static bool IsHex(char c)
-        {
-            return c >= 'a' && c <= 'f';
-        }
         public static char HexToChar(char hex)
         {
             if (hex >= 'a' && hex <= 'f')
@@ -54,11 +51,11 @@ namespace HexJson
                 return (char)(hex - '0');
             return default;
         }
-        public static char HexToChars(ReadOnlySpan<char> value, int index, int count)
+        public static char HexToChars(ReadOnlySpan<char> value)
         {
             char ret = default;
-            for(int i = 3; i >= 0; --i)
-                ret |= (char)(HexToChar(value[index++]) << i * 4);
+            for (int i = 3; i >= 0; --i)
+                ret |= (char)(HexToChar(value[3 - i]) << i * 4);
             return ret;
         }
         public static bool TryParseDouble(ReadOnlySpan<char> value, out double result)
@@ -125,6 +122,7 @@ namespace HexJson
     };
     struct JsonToken
     {
+       
         public double Value;
         public string Content;
         public JsonTokenType Type;
@@ -141,53 +139,37 @@ namespace HexJson
             Content = string.Empty;
         }
     };
-    ref struct JsonTokenizer
+    ref struct JsonLexer
     {
         readonly ReadOnlySpan<char> m_source;
         int m_index;
-        readonly int m_size;
-        bool m_end;
         void SetSingleToken(ref JsonToken token, JsonTokenType type)
         {
             token.Type = type;
-            token.Value = m_source[m_index];
-            if (m_index == m_size - 1)
-            {
-                m_end = true;
+            token.Value = m_source[m_index++];
+            if (m_index == m_source.Length)
                 return;
-            }
-            m_index++;
         }
-        static bool GetEscapeChar(char wc, ref char corresponding)
+        static bool GetEscapeChar(char wc, out char corresponding) => (corresponding = wc switch
         {
-            if (wc == 'n')
-                corresponding = '\n';
-            else if (wc == 'b')
-                corresponding = '\b';
-            else if (wc == 'r')
-                corresponding = '\r';
-            else if (wc == 't')
-                corresponding = '\t';
-            else if (wc == 'f')
-                corresponding = '\f';
-            else if (wc == '"')
-                corresponding = '"';
-            else if (wc == '\\')
-                corresponding = '\\';
-            else if (wc == '/')
-                corresponding = '/';
-            else if (wc == 'u')
-                corresponding = 'u';
-            else
-                return false;
-            return true;
-        }
+            'n' => '\n',
+            'b' => '\b',
+            'r' => '\r',
+            't' => '\t',
+            'f' => '\f',
+            '"' => '"',
+            '\\' => '\\',
+            '/' => '/',
+            'u' => 'u',
+            _ => default
+        }) != default;
+
         void ReadString(ref JsonToken token)
         {
             StringBuilder builer = new StringBuilder(16);
             token.Type = JsonTokenType.String;
             m_index++;
-            for (; ; )
+            while(true)
             {
                 if (m_source[m_index] == '\\')//转义
                 {
@@ -195,14 +177,13 @@ namespace HexJson
                     if (m_source[m_index] == 'u')//Unicode转义
                     {
                         m_index++;
-                        char unicode = JsonParseHelper.HexToChars(m_source, m_index, 4);
+                        char unicode = JsonParseHelper.HexToChars(m_source.Slice(m_index, 4));
                         builer.Append(unicode);
                         m_index += 4;
                     }
                     else
                     {
-                        char escape = char.MinValue;
-                        if (!GetEscapeChar(m_source[m_index], ref escape))
+                        if (!GetEscapeChar(m_source[m_index],out var escape))
                             throw new JsonParsingException("Invalid escape character");
                         builer.Append(escape);
                         m_index++;
@@ -223,8 +204,8 @@ namespace HexJson
             int count = JsonParseHelper.FloatSniff(m_source, m_index);
             if (count == 0)
                 throw new JsonParsingException("Nought-length number is not allowed");
-            double first_part = 0;
-            JsonParseHelper.TryParseDouble(m_source.Slice(m_index, count), out first_part);
+            if (!JsonParseHelper.TryParseDouble(m_source.Slice(m_index, count), out var first_part))
+                throw new JsonParsingException("Malformed number");
             m_index += count;
             if (m_source[m_index] == 'E' || m_source[m_index] == 'e')
             {
@@ -234,8 +215,8 @@ namespace HexJson
                     throw new JsonParsingException("Nought-length exponent is not allowed");
                 else
                 {
-                    double second_part = 0;
-                    JsonParseHelper.TryParseDouble(m_source.Slice(m_index, sec_count), out second_part);
+                    if (!JsonParseHelper.TryParseDouble(m_source.Slice(m_index, sec_count), out var second_part))
+                        throw new JsonParsingException("Malformed exponent");
                     m_index += sec_count;
                     token.Value = Math.Pow(first_part, second_part);
                 }
@@ -270,12 +251,15 @@ namespace HexJson
                 throw new JsonParsingException("Invalid boolean value");
             m_index += 5;
         }
-        public JsonTokenizer(string JsonString)
+        public JsonLexer(string JsonString)
         {
             m_source = JsonString.AsSpan();
-            m_size = JsonString.Length;
             m_index = 0;
-            m_end = false;
+        }
+        public JsonLexer(ReadOnlySpan<char> Json)
+        {
+            m_source = Json;
+            m_index = 0;
         }
         public void Consume(ref JsonToken token)
         {
@@ -311,7 +295,7 @@ namespace HexJson
                     break;
             }
         }
-        public bool Done => m_end;
+        public bool Done => m_index == m_source.Length;
         public void Repeek(int Cnt)
         {
             m_index -= Cnt;
@@ -319,10 +303,14 @@ namespace HexJson
     }
     ref struct JsonParser
     {
-        JsonTokenizer m_tokenizer;
+        JsonLexer m_tokenizer;
         public JsonParser(string target)
         {
-            m_tokenizer = new JsonTokenizer(target);
+            m_tokenizer = new JsonLexer(target);
+        }
+        public JsonParser(ReadOnlySpan<char> target)
+        {
+            m_tokenizer = new JsonLexer(target);
         }
         IJsonValue ParseValue()
         {
@@ -402,9 +390,9 @@ namespace HexJson
         }
     };
     /// <summary>
-    /// Json Parse Service
+    /// Json Service
     /// </summary>
-    public class Json
+    public static partial class Json
     {
         /// <summary>
         /// Parse JsonObject from content
@@ -435,6 +423,28 @@ namespace HexJson
         {
             JsonParser parser = new JsonParser(Content);
             return Content.StartsWith("{") ? parser.ParseObject() as IJsonValue : parser.ParseArray() as IJsonValue;
+        }
+        /// <summary>
+        /// Parse IJsonValue from any stream with custom encoding
+        /// </summary>
+        /// <param name="stream"></param>
+        /// <param name="encoding"></param>
+        /// <returns></returns>
+        public static IJsonValue Parse(Stream stream, Encoding encoding)
+        {
+            var sequence = new StreamReader(stream, encoding).ReadToEnd();
+            return Parse(sequence);
+        }
+        /// <summary>
+        /// Parse IJsonValue from any stream with UTF-8
+        /// </summary>
+        /// <param name="stream"></param>
+        /// <param name="encoding"></param>
+        /// <returns></returns>
+        public static IJsonValue Parse(Stream stream)
+        {
+            var sequence = new StreamReader(stream, Encoding.UTF8).ReadToEnd();
+            return Parse(sequence);
         }
     }
 }

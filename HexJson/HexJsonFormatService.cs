@@ -4,11 +4,6 @@ using System.Text;
 
 namespace HexJson
 {
-    public enum Encoding
-    {
-        Unicode,
-        None
-    }
     public class JsonFormatter
     {
         private StringBuilder m_text = new StringBuilder();
@@ -27,30 +22,24 @@ namespace HexJson
         }
         private void TextViaUnicode(string Target)
         {
-            switch (TextEncoding)
+            if (TextEncoding)
             {
-                case Encoding.None: Text(Target); break;
-                case Encoding.Unicode:
+                for (int i = 0; i < Target.Length; ++i)
+                {
+                    if (Target[i] > ASCII)
                     {
-
-                        for (int i = 0; i < Target.Length; ++i)
-                        {
-                            if (Target[i] > ASCII)
-                            {
-                                Text('\\');
-                                Text('u');
-                                Span<char> buffer = new char[4];
-                                ToUnicodeFormat(Target[i], buffer);
-                                Text(buffer);
-                            }
-                            else
-                                Text(Target[i]);
-                        }
-                        break;
+                        Text('\\');
+                        Text('u');
+                        Span<char> buffer = new char[4];
+                        ToUnicodeFormat(Target[i], buffer);
+                        Text(buffer);
                     }
-                default:
-                    throw new JsonRuntimeException("Invalid encoding");
+                    else
+                        Text(Target[i]);
+                }
             }
+            else
+                Text(Target);
         }
         private static void ToUnicodeFormat(char Target, Span<char> Buffer)
         {
@@ -127,7 +116,7 @@ namespace HexJson
                     throw new JsonRuntimeException("Invalid type for formatter");
             }
         }
-        public Encoding TextEncoding { get; set; }
+        public bool TextEncoding { get; set; }
         public string Format
         {
             get
@@ -135,7 +124,7 @@ namespace HexJson
                 return m_text.ToString();
             }
         }
-        public static string JsonFormat(IJsonValue target, Encoding encoding = Encoding.None)
+        public static string JsonFormat(IJsonValue target, bool encoding = true)
         {
             JsonFormatter formatter = new JsonFormatter() { TextEncoding = encoding };
             formatter.JsonValueFormat(target);

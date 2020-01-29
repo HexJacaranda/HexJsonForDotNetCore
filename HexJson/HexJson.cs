@@ -69,7 +69,7 @@ namespace HexJson
                 return m_cache == 1;
             throw new JsonRuntimeException("Not boolean");
         }
-        public object GetValue()
+        public object AsBoxed()
         {
             if (m_type == JsonValueType.String)
                 return m_string;
@@ -234,5 +234,4 @@ namespace HexJson
             return m_list.GetEnumerator();
         }
     };
- 
 }
